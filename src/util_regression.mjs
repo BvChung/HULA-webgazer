@@ -327,4 +327,25 @@ util_regression.getCalibrationData = function () {
 	};
 };
 
+/**
+ * @typedef {Object} ModelWeights
+ * @property {number[]} XWeights - The weights for the X axis
+ * @property {number[]} YWeights - The weights for the Y axis
+ */
+
+/**
+ * Set the weights for the regression model
+ * @param {ModelWeights} weights - The weights to set
+ */
+
+util_regression.setWeights = function (weights) {
+	if (!weights) {
+		return;
+	}
+
+	const { XWeights, YWeights } = weights;
+	this.XWeights = XWeights;
+	this.YWeights = YWeights;
+};
+
 export default util_regression;

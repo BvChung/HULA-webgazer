@@ -54,11 +54,11 @@ reg.RidgeReg.prototype.trainModel = function () {
 		this.calibrationEyeFeaturesTrail
 	);
 
-	console.log({
-		screenXArray,
-		screenYArray,
-		eyeFeatures,
-	});
+	// console.log({
+	// 	screenXArray,
+	// 	screenYArray,
+	// 	eyeFeatures,
+	// });
 
 	const coefficientsX = util_regression.ridge(
 		screenXArray,
@@ -150,11 +150,11 @@ reg.RidgeReg.prototype.predict = function (eyesObj) {
 	var screenYArray = this.screenYClicksArray.data.concat(trailY);
 	var eyeFeatures = this.eyeFeaturesClicks.data.concat(trailFeat);
 
-	console.log({
-		screenXArray: screenXArray,
-		screenYArray: screenYArray,
-		eyeFeatures: eyeFeatures,
-	});
+	// console.log({
+	// 	screenXArray: screenXArray,
+	// 	screenYArray: screenYArray,
+	// 	eyeFeatures: eyeFeatures,
+	// });
 
 	var coefficientsX = util_regression.ridge(
 		screenXArray,
@@ -198,6 +198,8 @@ reg.RidgeReg.prototype.predict = function (eyesObj) {
 };
 
 reg.RidgeReg.prototype.setData = util_regression.setData;
+
+reg.RidgeReg.prototype.setWeights = util_regression.setWeights;
 
 /**
  * Return the data

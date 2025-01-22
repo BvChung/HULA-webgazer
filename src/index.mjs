@@ -46,6 +46,7 @@ var yPast50 = new Array(50);
 
 // loop parameters
 var clockStart;
+var gazeTrackingStartTimestamp;
 var latestEyeFeatures = null;
 var latestGazeData = null;
 var paused = false;
@@ -219,7 +220,7 @@ function drawCoordinates(colour, x, y) {
 /**
  * Gets the pupil features by following the pipeline which threads an eyes object through each call:
  * curTracker gets eye patches -> blink detector -> pupil detection
- * @param {Canvas} canvas - a canvas which will have the video drawn onto it
+ * @param {HTMLCanvasElement} canvas - a canvas which will have the video drawn onto it
  * @param {Number} width - the width of canvas
  * @param {Number} height - the height of canvas
  */
@@ -237,7 +238,7 @@ function getPupilFeatures(canvas, width, height) {
 
 /**
  * Gets the most current frame of video and paints it to a resized version of the canvas with width and height
- * @param {Canvas} canvas - the canvas to paint the video on to
+ * @param {HTMLCanvasElement} canvas - the canvas to paint the video on to
  * @param {Number} width - the new width of the canvas
  * @param {Number} height - the new height of the canvas
  */
@@ -271,8 +272,10 @@ async function getPrediction(regModelIndex) {
 		console.log("regression not set, call setRegression()");
 		return null;
 	}
+
 	for (var reg in regs) {
-		predictions.push(regs[reg].predict(latestEyeFeatures));
+		predictions.push(regs[reg].trainedPredict(latestEyeFeatures));
+		// predictions.push(regs[reg].predict(latestEyeFeatures));
 	}
 
 	if (regModelIndex !== undefined) {
@@ -308,8 +311,6 @@ async function loop() {
 	// in the implementation of getPrediction().
 
 	// Paint the latest video frame into the canvas which will be analyzed by WebGazer
-	// [20180729 JT] Why do we need to do this? clmTracker does this itself _already_, which is just duplicating the work.
-	// Is it because other trackers need a canvas instead of an img/video element?
 	paintCurrentFrame(
 		videoElementCanvas,
 		videoElementCanvas.width,
@@ -430,20 +431,21 @@ async function calibrationLoop() {
  * @returns {null}
  */
 var recordScreenPosition = function (x, y, eventType) {
-	if (paused) {
-		return;
-	}
 	if (regs.length === 0) {
 		console.log("regression not set, call setRegression()");
 		return null;
 	}
+
+	if (!latestEyeFeatures) return;
+
 	for (var reg in regs) {
-		if (latestEyeFeatures)
-			if (isCalibrating) {
-				regs[reg].addCalibrationData(latestEyeFeatures, [x, y], eventType);
-			} else {
-				regs[reg].addData(latestEyeFeatures, [x, y], eventType);
-			}
+		if (isCalibrating) {
+			regs[reg].addCalibrationData(latestEyeFeatures, [x, y], eventType);
+		}
+
+		// else {
+		// 	regs[reg].addData(latestEyeFeatures, [x, y], eventType);
+		// }
 	}
 };
 
@@ -718,15 +720,17 @@ function setUserMediaVariable() {
 /**
  * Starts all state related to webgazer -> dataLoop, video collection, click listener
  * @returns {void}
+ * @throws {Error} If webgazer is not initialized
  */
 webgazer.begin = async function () {
 	if (!isWebGazerReady) {
-		console.log("webgazer not initialized, call init()");
-		return;
+		throw new Error("webgazer not initialized");
 	}
 
-	console.log("Gaze tracking started");
-	clockStart = performance.now();
+	console.log("Eye tracking started");
+	const start = performance.now();
+	clockStart = start;
+	gazeTrackingStartTimestamp = start;
 	paused = false;
 	await loop();
 };
@@ -791,24 +795,18 @@ webgazer.initialize = async function (onFail) {
 
 /**
  * Start the calibration process
- * @returns {webgazer} this
+ * @returns {void}
+ * @throws {Error} If webgazer is not initialized or regression is not set
  */
 webgazer.startCalibration = async function () {
 	if (!isWebGazerReady) {
-		console.log("webgazer not initialized");
-		return webgazer;
+		throw new Error("webgazer not initialized");
 	}
 
 	isCalibrating = true;
 	calibrationStartTimestamp = performance.now();
 
-	if (regs.length === 0) {
-		console.log("regression not set, call setRegression()");
-		return webgazer;
-	}
-
 	regs[0].clearCalibrationData();
-	console.log(regs[0].getCalibrationData());
 	console.log("Calibration started");
 
 	await calibrationLoop();
@@ -817,22 +815,22 @@ webgazer.startCalibration = async function () {
 /**
  * Start the calibration process
  * @returns {Object} The model weights
+ * @throws {Error} If webgazer is not initialized or regression is not set
  */
 webgazer.stopCalibration = function () {
-	if (!isWebGazerReady) {
-		console.log("webgazer not initialized");
-		return;
+	if (!isWebGazerReady || !isCalibrating) {
+		throw new Error("webgazer not initialized or not calibrating");
 	}
 
+	const stopTimestamp = performance.now();
 	isCalibrating = false;
 
 	if (calibrationFrameReq) {
 		cancelAnimationFrame(calibrationFrameReq);
 	}
 
-	webgazer.stopVideo(); // uncomment if you want to stop the video from streaming
+	webgazer.stopVideo();
 
-	//remove video element and canvas
 	if (videoContainerElement) {
 		videoContainerElement.remove();
 	}
@@ -841,11 +839,46 @@ webgazer.stopCalibration = function () {
 		gazeDot.remove();
 	}
 
-	const modelWeights = regs[0].trainModel();
-	console.log(regs[0].getCalibrationData());
-	console.log("Model weights", modelWeights);
+	removeMouseEventListeners();
+	isWebGazerReady = false;
 
-	return modelWeights;
+	if (regs.length === 0) {
+		throw new Error("regression not set, call setRegression()");
+	}
+
+	const { XWeights, YWeights } = regs[0].trainModel();
+
+	const data = {
+		startTimestamp: calibrationStartTimestamp - calibrationStartTimestamp,
+		endTimestamp: stopTimestamp - calibrationStartTimestamp,
+		XWeights,
+		YWeights,
+	};
+
+	console.log("Calibration stopped", data);
+
+	return data;
+};
+
+/**
+ * @typedef {Object} ModelWeights
+ * @property {number[]} XWeights - The weights for the X axis
+ * @property {number[]} YWeights - The weights for the Y axis
+ */
+
+/**
+ * Set the model weights
+ * @param {ModelWeights} weights - The model weights
+ * @returns {webgazer} this
+ * @throws {Error} If webgazer is not initialized
+ */
+webgazer.setWeights = function (weights) {
+	if (!isWebGazerReady) {
+		throw new Error("webgazer not initialized");
+	}
+
+	regs[0].setWeights(weights);
+	return webgazer;
 };
 
 /**
@@ -895,6 +928,8 @@ webgazer.end = function () {
 		cancelAnimationFrame(loopFrameReq);
 	}
 
+	const stop = performance.now();
+
 	webgazer.stopVideo();
 
 	//remove video element and canvas
@@ -906,6 +941,13 @@ webgazer.end = function () {
 		gazeDot.remove();
 	}
 	isWebGazerReady = false;
+
+	removeMouseEventListeners();
+
+	return {
+		startTimestamp: gazeTrackingStartTimestamp - gazeTrackingStartTimestamp,
+		endTimestamp: stop - gazeTrackingStartTimestamp,
+	};
 };
 
 /**

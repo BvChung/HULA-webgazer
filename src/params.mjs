@@ -14,7 +14,7 @@ const params = {
 	mirrorVideo: true,
 	showFaceOverlay: false,
 	showFaceFeedbackBox: true,
-	showGazeDot: false,
+	showGazeDot: true,
 	camConstraints: {
 		video: {
 			width: { min: 320, ideal: 640, max: 1920 },
